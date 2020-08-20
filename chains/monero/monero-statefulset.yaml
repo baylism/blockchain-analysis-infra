@@ -1,0 +1,90 @@
+# Create a headless service to publish the IP address of pods in StatefulSet
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: monero-service
+  labels:
+    app: monero   # app targeted by service
+spec:
+  ports:
+  - port: 9998 # port exposed by service
+    name: monero # name of the port
+  clusterIP: None # makes it a headless service
+  selector:  # controller modifies the DNS configuration to addresses that point directly to the Pods backing the Service
+    app: monero # target app
+
+---
+# Create a StatefulSet to deploy the pod
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: monero  # *name of the SS* pods will be assigned IDs web-0, web-1 etc
+spec:  # pod template
+  selector:
+    matchLabels:
+      app: monero # has to match .spec.template.metadata.labels
+      # determines which pods belong to this SS
+  serviceName: "monero-service"
+  replicas: 1
+  template: 
+    metadata:
+      labels:
+        app: monero # *name of each pod* has to match .spec.selector.matchLabels 
+    spec: # container
+      terminationGracePeriodSeconds: 10
+      initContainers:
+      - name: config-data
+        image: busybox
+        env:
+        - name: CONFIG_FILENAME
+          value: bitmonero.conf
+        - name: USERNAME
+          valueFrom:
+            configMapKeyRef:
+              name: rpc-config
+              key: MONERO_UN
+        - name: PASSWORD
+          valueFrom:
+            configMapKeyRef:
+              name: rpc-config
+              key: MONERO_PW
+        command: ['sh', '/etc/config/init.sh']
+        volumeMounts:
+        - name: monerodata
+          mountPath: /data
+        - name: config-volume
+          mountPath: /etc/config
+      volumes:
+      - name: config-volume
+        configMap:
+          name: client-config
+          items:
+          - key: init.sh
+            path: init.sh
+            mode: 511
+          - key: monero.properties
+            path: properties
+      containers:
+      - name: monero # *name of each container*. Each pod has one container named monero.
+        image: baylism/monero-dock:persist
+        imagePullPolicy: Always # not necessary when 'latest' tag specified
+        ports: 
+        - containerPort: 9998  # port used by the pod
+          name: monero
+        volumeMounts:
+        - name: monerodata
+          mountPath: /root/monerodata
+        resources:
+          requests:
+            memory: "3Gi" # 3GB
+            cpu: "1000m" # 1 core
+  volumeClaimTemplates:
+  - metadata:
+      name: monerodata
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: "standard"
+      resources:
+        requests:
+          storage: 100Gi

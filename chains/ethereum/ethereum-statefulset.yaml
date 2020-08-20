@@ -1,0 +1,89 @@
+# Create a headless service to publish the IP address of pods in StatefulSet
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: ethereum-service
+  labels:
+    app: ethereum   # app targeted by service
+spec:
+  ports:
+  - port: 9998 # port exposed by service
+    name: ethereum # name of the port
+  clusterIP: None # makes it a headless service
+  selector:  # controller modifies the DNS configuration to addresses that point directly to the Pods backing the Service
+    app: ethereum # target app
+
+---
+# Create a StatefulSet to deploy the client
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ethereum  # *name of the SS* pods will be assigned IDs web-0, web-1 etc
+spec:  # pod template
+  selector:
+    matchLabels:
+      app: ethereum # has to match .spec.template.metadata.labels
+      # determines which pods belong to this SS
+  serviceName: "ethereum-service"
+  replicas: 1
+  template: 
+    metadata:
+      labels:
+        app: ethereum # *name of each pod* has to match .spec.selector.matchLabels 
+    spec: # container
+      terminationGracePeriodSeconds: 10
+      initContainers:
+      - name: config-data
+        image: busybox
+        env:
+        - name: CONFIG_FILENAME
+          value: geth.config
+        - name: USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: ETHEREUM_UN
+              key: USERNAME
+        - name: PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ETHEREUM_PW
+              key: PASSWORD
+        command: ['sh', '/etc/client/init.sh']
+        volumeMounts:
+        - name: ethereumdata
+          mountPath: /data
+        - name: config-volume
+          mountPath: /etc/config
+        volumes:
+        - name: config-volume
+          configMap:
+            name: client-config
+            items:
+            - key: init.sh
+              path: init.sh
+            - key: ethereum.properties
+              path: properties
+      containers:
+      - name: ethereum # *name of each container*. Each pod has one container named ethereum.
+        image: baylism/ethereum-dock:persist
+        imagePullPolicy: Always # not necessary when 'latest' tag specified
+        ports: 
+        - containerPort: 9998  # port used by the pod
+          name: ethereum
+        volumeMounts:
+        - name: ethereumdata
+          mountPath: /root/ethereumdata
+        resources:
+          requests:
+            memory: "3Gi" # note: pods might be evicted is node memory exceeded and pod usage over this number
+            cpu: "501m" 
+  volumeClaimTemplates:
+  - metadata:
+      name: ethereumdata
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: "standard"
+      resources:
+        requests:
+          storage: 1000Gi

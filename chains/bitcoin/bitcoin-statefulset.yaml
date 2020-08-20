@@ -1,0 +1,91 @@
+# Create a headless service to publish the IP address of pods in StatefulSet
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: bitcoin-service
+  labels:
+    app: bitcoin   # app targeted by service
+spec:
+  ports:
+  - port: 9998 # port exposed by service
+    name: bitcoin # name of the port
+  clusterIP: None # makes it a headless service
+  selector:  # controller modifies the DNS configuration to addresses that point directly to the Pods backing the Service
+    app: bitcoin # target app
+
+---
+# Create a StatefulSet to deploy the pod
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: bitcoin  # *name of the SS* pods will be assigned IDs web-0, web-1 etc
+spec:  # pod template
+  selector:
+    matchLabels:
+      app: bitcoin # has to match .spec.template.metadata.labels
+      # determines which pods belong to this SS
+  serviceName: "bitcoin-service"
+  replicas: 1
+  template: 
+    metadata:
+      labels:
+        app: bitcoin # *name of each pod* has to match .spec.selector.matchLabels 
+    spec: # container
+      terminationGracePeriodSeconds: 10
+      initContainers:
+      - name: config-data
+        image: busybox
+        env:
+        - name: CONFIG_FILENAME
+          value: bitcoin.conf
+        - name: USERNAME
+          valueFrom:
+            configMapKeyRef:
+              name: rpc-config
+              key: BITCOIN_UN
+        - name: PASSWORD
+          valueFrom:
+            configMapKeyRef:
+              name: rpc-config
+              key: BITCOIN_PW
+        command: ['sh', '/etc/config/init.sh']
+        volumeMounts:
+        - name: bitcoindata
+          mountPath: /data
+        - name: config-volume
+          mountPath: /etc/config
+      volumes:
+      - name: config-volume
+        configMap:
+          name: client-config
+          items:
+          - key: init.sh
+            path: init.sh
+            mode: 511
+          - key: bitcoin.properties
+            path: properties
+      containers:
+      - name: bitcoin # *name of each container*. Each pod has one container named bitcoin.
+        image: baylism/bitcoin-dock:persist
+        imagePullPolicy: Always # not necessary when 'latest' tag specified
+        ports: 
+        - containerPort: 9998  # port used by the pod
+          name: bitcoin
+        volumeMounts:
+        - name: bitcoindata
+          mountPath: /root/bitcoindata
+        resources:
+          requests:
+            memory: "3Gi" # 3GB
+            cpu: "1000m" # 1 core
+  volumeClaimTemplates:
+  - metadata:
+      name: bitcoindata
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: "standard"
+      resources:
+        requests:
+          storage: 300Gi
+        

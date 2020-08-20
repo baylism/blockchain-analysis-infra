@@ -1,0 +1,50 @@
+kind: ConfigMap
+metadata:
+  name: client-config
+  namespace: default
+apiVersion: v1
+data:
+  init.sh: |-
+    PORT=9998
+    cat /etc/config/properties | sed "s/USERNAME/$USERNAME/g; s/PASSWORD/$PASSWORD/g; s/PORT/$PORT/g" | tee /data/$CONFIG_FILENAME
+    echo >> /data/$CONFIG_FILENAME
+    echo 
+    echo configs set...
+    cat /data/$CONFIG_FILENAME
+    
+  ethereum.properties: |-
+    foo=bar
+    baz=iii
+
+  zcash.properties: |-
+    addnode=mainnet.z.cash
+    server=1
+    rpcuser=USERNAME
+    rpcpassword=PASSWORD
+    rpcport=PORT
+    rpcallowip=10.0.0.0/8
+    txindex=1
+
+  monero.properties: |-
+    rpc-login=USERNAME:PASSWORD
+    rpc-bind-port=PORT
+    rpc-bind-ip=0.0.0.0
+    confirm-external-bind=1
+
+  dash.properties: |-
+    server=1
+    rpcuser=USERNAME
+    rpcpassword=PASSWORD
+    rpcport=PORT
+    rpcallowip=10.0.0.0/8
+    txindex=1
+
+  bitcoin.properties: |-
+    server=1
+    rpcuser=USERNAME
+    rpcpassword=PASSWORD
+    rpcport=PORT
+    rpcallowip=10.0.0.0/8
+    txindex=1
+    maxmempool=500
+    dbcache=500

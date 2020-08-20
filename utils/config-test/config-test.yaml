@@ -1,0 +1,47 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: config-test
+spec: # container
+  terminationGracePeriodSeconds: 10
+  initContainers:
+  - name: config-data
+    image: busybox
+    env:
+    - name: CONFIG_FILENAME
+      value: zcash.conf
+    - name: USERNAME
+      valueFrom:
+        configMapKeyRef:
+          name: rpc-config
+          key: ZCASH_UN
+    - name: PASSWORD
+      valueFrom:
+        configMapKeyRef:
+          name: rpc-config
+          key: ZCASH_PW
+    command: ['sh', '-c', 'env; mkdir data; until mountpoint -q /root/; do echo Waiting for persistent volume mount; sleep 20; done']
+    volumeMounts:
+    - name: config-volume
+      mountPath: /etc/config
+  volumes:
+  - name: config-volume
+    configMap:
+      name: client-config
+      items:
+      - key: init.sh
+        path: init.sh
+        mode: 511
+      - key: zcash.properties
+        path: properties
+  containers:
+  - name: test # *name of each container*. Each pod has one container named zcash.
+    image: baylism/zcash-dock:persist-overwinter
+    imagePullPolicy: Always # not necessary when 'latest' tag specified
+    ports: 
+    - containerPort: 9998  # port used by the pod
+      name: test
+    resources:
+      requests:
+        memory: "3Gi" # 3GB
+        cpu: "1000m" # 1 core

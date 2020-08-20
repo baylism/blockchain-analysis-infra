@@ -1,0 +1,98 @@
+# Create a headless service to publish the IP address of pods in StatefulSet
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: dash-service
+  labels:
+    app: dash   # app targeted by service
+spec:
+  ports:
+  - port: 9998 # port exposed by service
+    name: dash # name of the port
+  clusterIP: None # makes it a headless service
+  selector:  # controller modifies the DNS configuration to addresses that point directly to the Pods backing the Service
+    app: dash # target app
+
+---
+# Create a StatefulSet to deploy the pod
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: dash  # *name of the SS* pods will be assigned IDs web-0, web-1 etc
+spec:  # pod template
+  selector:
+    matchLabels:
+      app: dash # has to match .spec.template.metadata.labels
+      # determines which pods belong to this SS
+  serviceName: "dash-service"
+  replicas: 1
+  template: 
+    metadata:
+      labels:
+        app: dash # *name of each pod* has to match .spec.selector.matchLabels 
+    spec: # container
+      terminationGracePeriodSeconds: 10
+      initContainers:
+      - name: config-data
+        image: busybox
+        env:
+        - name: CONFIG_FILENAME
+          value: dash.conf
+        - name: USERNAME
+          valueFrom:
+            configMapKeyRef:
+              name: rpc-config
+              key: DASH_UN
+        - name: PASSWORD
+          valueFrom:
+            configMapKeyRef:
+              name: rpc-config
+              key: DASH_PW
+        command: ['sh', '/etc/config/init.sh']
+        volumeMounts:
+        - name: dashdata
+          mountPath: /data
+        - name: config-volume
+          mountPath: /etc/config
+      volumes:
+      - name: config-volume
+        configMap:
+          name: client-config
+          items:
+          - key: init.sh
+            path: init.sh
+            mode: 511
+          - key: dash.properties
+            path: properties
+      # optional: download blockchain bootstrap TODO: fix short read unzip error for larger archives
+      # - name: boostrap-data
+      #   image: busybox
+      #   # from https://github.com/UdjinM6/dash-bootstrap. 
+      #   command: ["sh", "-c", "wget https://dash-bootstrap.ams3.digitaloceanspaces.com/mainnet/2018-08-15/bootstrap.dat.zip && gzip -d bootstrap.dat.zip && mv bootstrap.dat /data"]
+      #   volumeMounts:
+      #   - name: dashdata
+      #     mountPath: /data
+      containers:
+      - name: dash # *name of each container*. Each pod has one container named dash.
+        image: baylism/dash-dock:persist
+        imagePullPolicy: Always # not necessary when 'latest' tag specified
+        ports: 
+        - containerPort: 9998  # port used by the pod
+          name: dash
+        volumeMounts:
+        - name: dashdata
+          mountPath: /root/dashdata
+        resources:
+          requests:
+            memory: "3Gi" # 3GB
+            cpu: "1000m" # 1 core
+  volumeClaimTemplates:
+  - metadata:
+      name: dashdata
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: "faster"
+      resources:
+        requests:
+          storage: 30Gi
